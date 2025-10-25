@@ -35,9 +35,9 @@ jobs:
 
       # 5. Build Docker image
       - name: Build Docker image
-        run: docker build -t temporal-worker:latest .
+        run: docker build -t orderprocessor-worker:latest .
 
       # 6. Push Docker image
       - name: Push Docker image
-        run: docker tag temporal-worker:latest ${{ secrets.DOCKER_USERNAME }}/temporal-worker:latest
-      - run: docker push ${{ secrets.DOCKER_USERNAME }}/temporal-worker:latest
+        run: docker tag orderprocessor-worker:latest ${{ secrets.DOCKER_USERNAME }}/orderprocessor-worker:latest
+      - run: docker push ${{ secrets.DOCKER_USERNAME }}/orderprocessor-worker:latest
