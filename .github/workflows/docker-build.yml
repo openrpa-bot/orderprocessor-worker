@@ -1,41 +1,43 @@
-name: Build & Push Temporal Worker
+name: Build & Deploy Temporal Worker
 
 on:
   push:
     branches:
-      - main  # or the branch you want to track
+      - main
 
 jobs:
-  build:
+  build-and-push:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout code
-      - name: Checkout repository
+      # 1. Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v3
 
-      # 2. Set up JDK 21
-      - name: Set up JDK 21
-        uses: actions/setup-java@v3
-        with:
-          distribution: temurin
-          java-version: 21
+      # 2. Set up Docker
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      # 3. Build JAR
-      - name: Build JAR
-        run: ./gradlew clean build -x test
-
-      # 4. Log in to Docker Hub (optional if pushing)
+      # 3. Log in to Docker Hub
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      # 4a. Make Gradle wrapper executable
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      # 4b. Build JAR
+      - name: Build JAR
+        run: ./gradlew clean build -x test
+
       # 5. Build Docker image
       - name: Build Docker image
-        run: docker build -t rahulnigamfzd/orderprocessor-worker:latest .
+        run: docker build -t temporal-worker:latest .
 
-      # 6. Push Docker image (optional)
+      # 6. Push Docker image
       - name: Push Docker image
-        run: docker push rahulnigamfzd/orderprocessor-worker:latest
+        run: docker tag temporal-worker:latest ${{ secrets.DOCKER_USERNAME }}/temporal-worker:latest
+      - run: docker push ${{ secrets.DOCKER_USERNAME }}/temporal-worker:latest
