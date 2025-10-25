@@ -1,5 +1,16 @@
-group = 'com.nigam.temporal.core'
-version = '1.0-SNAPSHOT'
-dependencies {
+plugins {
+    id 'java-library'
+}
 
+repositories {
+    mavenCentral()
+}
+
+group = 'com.nigam.temporal'
+version = '1.0'
+
+// Only dependencies needed for workflows/activities
+dependencies {
+    implementation 'io.temporal:temporal-sdk:1.28.4'
+    implementation 'org.slf4j:slf4j-simple:2.0.9'
 }

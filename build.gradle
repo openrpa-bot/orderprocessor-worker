@@ -9,10 +9,17 @@ repositories {
 
 dependencies {
     implementation project(':temporalbase')
-    implementation 'io.temporal:temporal-sdk:1.23.0'
+    // add other modules as needed
+    implementation 'io.temporal:temporal-sdk:1.28.4'
     implementation 'org.slf4j:slf4j-simple:2.0.9'
 }
 
 application {
     mainClass = 'com.nigam.temporal.TemporalRunner'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
 }
