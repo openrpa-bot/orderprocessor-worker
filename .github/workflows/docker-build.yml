@@ -31,7 +31,7 @@ jobs:
 
       # 4b. Build JAR
       - name: Build JAR
-        run: ./gradlew clean build -x test
+        run: ./gradlew clean shadowJar -x test
 
       # 5. Build Docker image
       - name: Build Docker image
