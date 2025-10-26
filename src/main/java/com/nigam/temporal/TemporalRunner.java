@@ -10,7 +10,7 @@ public class TemporalRunner {
     public static void main(String[] args) {
 
         System.setProperty("java.net.preferIPv4Stack", "true");
-       //String temporalHost = System.getenv().getOrDefault("TEMPORAL_HOST", "temporal:7233");
+        //String temporalHost = System.getenv().getOrDefault("TEMPORAL_HOST", "temporal:7233");
         String temporalHost = System.getenv().getOrDefault("TEMPORAL_HOST", "192.168.1.112:7233");
 
         // 1️⃣ Connect to Temporal service (default: localhost:7233)

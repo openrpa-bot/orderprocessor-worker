@@ -12,7 +12,7 @@ repositories {
 dependencies {
     implementation project(':temporalbase')
     // add other modules as needed
-    implementation 'io.temporal:temporal-sdk:1.28.4'
+    implementation 'io.temporal:temporal-sdk:1.31.0'
     implementation 'org.slf4j:slf4j-simple:2.0.9'
 }
 
