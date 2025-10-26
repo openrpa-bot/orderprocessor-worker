@@ -14,6 +14,8 @@ dependencies {
     // add other modules as needed
     implementation 'io.temporal:temporal-sdk:1.31.0'
     implementation 'org.slf4j:slf4j-simple:2.0.9'
+    implementation 'io.grpc:grpc-netty-shaded:1.59.0'
+
 }
 
 application {
@@ -35,4 +37,17 @@ java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
     }
+}
+jar {
+    manifest {
+        attributes 'Main-Class': 'com.nigam.temporal.TemporalRunner'
+    }
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+bootJar {
+    mergeServiceFiles() // important for gRPC load balancers
 }
