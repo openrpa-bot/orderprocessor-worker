@@ -5,6 +5,6 @@ import io.temporal.workflow.WorkflowMethod;
 
 @WorkflowInterface
 public interface GreetingWorkflow {
-  @WorkflowMethod
-  String getGreeting(String name);
+  @WorkflowMethod(name = "GreetingWorkflow")
+  String getGreeting(GreetingInput input);
 }

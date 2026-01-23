@@ -21,8 +21,10 @@ public class GreetingWorkflowImpl implements GreetingWorkflow {
           );
 
   @Override
-  public String getGreeting(String name) {
-    System.out.println("Called with name: " + name);
-    return activities.composeGreeting(name);
+  public String getGreeting(GreetingInput input) {
+    // Extract name from input (handles both string and array formats)
+    String nameValue = input != null && input.getName() != null ? input.getName() : "World";
+    System.out.println("Called with name: " + nameValue);
+    return activities.composeGreeting(nameValue);
   }
 }

@@ -1,5 +1,7 @@
 package com.nigam.temporal;
 
+import com.nigam.temporal.ltp.LtpCalculatorActivitiesImpl;
+import com.nigam.temporal.ltp.LtpCalculatorWorkflowImpl;
 import io.temporal.client.WorkflowClient;
 import io.temporal.serviceclient.WorkflowServiceStubs;
 import io.temporal.serviceclient.WorkflowServiceStubsOptions;
@@ -83,22 +85,30 @@ public class TemporalRunner {
                   WorkflowClient client = WorkflowClient.newInstance(service);
                   System.out.println("✅ WorkflowClient created");
 
-                  // Create WorkerFactory and Worker
-                  System.out.println("⚡ Creating WorkerFactory and Worker...");
+                  // Create WorkerFactory
+                  System.out.println("⚡ Creating WorkerFactory...");
                   WorkerFactory factory = WorkerFactory.newInstance(client);
-                  Worker worker = factory.newWorker("GREETING_TASK_QUEUE");
-                  System.out.println("✅ Worker created for task queue: GREETING_TASK_QUEUE");
+                  
+                  // Create and configure Greeting Worker
+                  System.out.println("⚡ Creating Greeting Worker...");
+                  Worker greetingWorker = factory.newWorker("GREETING_TASK_QUEUE");
+                  greetingWorker.registerWorkflowImplementationTypes(GreetingWorkflowImpl.class);
+                  greetingWorker.registerActivitiesImplementations(new GreetingActivitiesImpl());
+                  System.out.println("✅ Greeting Worker created for task queue: GREETING_TASK_QUEUE");
 
-                  // Register workflow and activities
-                  System.out.println("⚡ Registering workflows and activities...");
-                  worker.registerWorkflowImplementationTypes(GreetingWorkflowImpl.class);
-                  worker.registerActivitiesImplementations(new GreetingActivitiesImpl());
-                  System.out.println("✅ Workflows and activities registered");
+                  // Create and configure LTP Calculator Worker
+                  System.out.println("⚡ Creating LTP Calculator Worker...");
+                  Worker ltpWorker = factory.newWorker("ltpCalculator");
+                  ltpWorker.registerWorkflowImplementationTypes(LtpCalculatorWorkflowImpl.class);
+                  ltpWorker.registerActivitiesImplementations(new LtpCalculatorActivitiesImpl());
+                  System.out.println("✅ LTP Calculator Worker created for task queue: ltpCalculator");
 
                   // Start WorkerFactory
                   System.out.println("⚡ Starting WorkerFactory...");
                   factory.start();
-                  System.out.println("✅ Temporal worker started successfully on GREETING_TASK_QUEUE");
+                  System.out.println("✅ Temporal workers started successfully:");
+                  System.out.println("   - GREETING_TASK_QUEUE");
+                  System.out.println("   - ltpCalculator");
 
                   // Add shutdown hook
                   Runtime.getRuntime().addShutdownHook(new Thread(() -> {
