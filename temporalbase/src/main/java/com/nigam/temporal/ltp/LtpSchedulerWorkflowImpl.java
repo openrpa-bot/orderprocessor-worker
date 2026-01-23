@@ -3,16 +3,11 @@ package com.nigam.temporal.ltp;
 import io.temporal.workflow.Workflow;
 import io.temporal.workflow.ChildWorkflowOptions;
 
-import java.time.Duration;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.UUID;
 
 public class LtpSchedulerWorkflowImpl implements LtpSchedulerWorkflow {
-
-  private static final LocalTime START_TIME = LocalTime.of(9, 7);  // 9:07 AM
-  private static final LocalTime END_TIME = LocalTime.of(15, 30);  // 3:30 PM
-  private static final Duration INTERVAL = Duration.ofMinutes(1);   // 1 minute
 
   @Override
   public String scheduleLtpCalculations(LtpCalculatorInput input) {
@@ -20,64 +15,48 @@ public class LtpSchedulerWorkflowImpl implements LtpSchedulerWorkflow {
       return "Error: Input is null";
     }
 
-    System.out.println("🕐 Starting LTP Scheduler Workflow");
-    System.out.println("   Schedule: Every minute from 9:07 AM to 3:30 PM");
+    // Parse schedule times from input (with defaults)
+    String startTimeStr = input.getScheduleStartTime() != null ? input.getScheduleStartTime() : "09:07";
+    String endTimeStr = input.getScheduleEndTime() != null ? input.getScheduleEndTime() : "15:30";
+
+    LocalTime START_TIME = parseTime(startTimeStr, LocalTime.of(9, 7));
+    LocalTime END_TIME = parseTime(endTimeStr, LocalTime.of(15, 30));
+
+    // Get current time
+    LocalTime currentTime = getCurrentTime();
+
+    // Check if current time is within the schedule window
+    if (currentTime.isBefore(START_TIME) || currentTime.isAfter(END_TIME) || currentTime.equals(END_TIME)) {
+      // Outside schedule window - exit silently
+      return "Skipped: Outside schedule window (" + startTimeStr + " - " + endTimeStr + ")";
+    }
+
+    // Within schedule window - execute LTP calculation
+    System.out.println("⏰ [" + currentTime.format(DateTimeFormatter.ofPattern("HH:mm:ss")) + "] Executing LTP calculation");
     System.out.println("   Server: " + input.getServerName());
     System.out.println("   Index: " + input.getIndexName());
-
-    int executionCount = 0;
-    LocalTime currentTime;
-
-    // Wait until 9:07 AM if we're starting before that
-    currentTime = getCurrentTime();
-    if (currentTime.isBefore(START_TIME)) {
-      Duration waitTime = Duration.between(currentTime, START_TIME);
-      System.out.println("⏳ Waiting until 9:07 AM... (" + waitTime.toMinutes() + " minutes)");
-      Workflow.sleep(waitTime);
-    }
-
-    // Main scheduling loop
-    while (true) {
-      currentTime = getCurrentTime();
+    
+    try {
+      // Start child workflow for LTP calculation
+      String workflowId = "ltp-calc-" + UUID.randomUUID().toString();
       
-      // Check if we've passed 3:30 PM
-      if (currentTime.isAfter(END_TIME) || currentTime.equals(END_TIME)) {
-        System.out.println("🛑 Reached end time (3:30 PM). Stopping scheduler.");
-        break;
-      }
-
-      // Execute LTP calculation
-      executionCount++;
-      System.out.println("⏰ [" + currentTime.format(DateTimeFormatter.ofPattern("HH:mm:ss")) + "] Execution #" + executionCount);
+      LtpCalculatorWorkflow childWorkflow = Workflow.newChildWorkflowStub(
+          LtpCalculatorWorkflow.class,
+          ChildWorkflowOptions.newBuilder()
+              .setWorkflowId(workflowId)
+              .setTaskQueue("ltpCalculator")
+              .build()
+      );
       
-      try {
-        // Start child workflow for LTP calculation
-        String workflowId = "ltp-calc-" + UUID.randomUUID().toString();
-        
-        // Use child workflow to execute the calculation
-        LtpCalculatorWorkflow childWorkflow = Workflow.newChildWorkflowStub(
-            LtpCalculatorWorkflow.class,
-            ChildWorkflowOptions.newBuilder()
-                .setWorkflowId(workflowId)
-                .setTaskQueue("ltpCalculator")
-                .build()
-        );
-        
-        String result = childWorkflow.calculateLtp(input);
-        System.out.println("✅ Execution #" + executionCount + " completed: " + result);
-        
-      } catch (Exception e) {
-        System.err.println("❌ Execution #" + executionCount + " failed: " + e.getMessage());
-        e.printStackTrace();
-      }
-
-      // Sleep for 1 minute before next execution
-      Workflow.sleep(INTERVAL);
+      String result = childWorkflow.calculateLtp(input);
+      System.out.println("✅ Execution completed: " + result);
+      return result;
+      
+    } catch (Exception e) {
+      System.err.println("❌ Execution failed: " + e.getMessage());
+      e.printStackTrace();
+      return "Error: " + e.getMessage();
     }
-
-    String summary = String.format("Scheduler completed. Total executions: %d", executionCount);
-    System.out.println("📊 " + summary);
-    return summary;
   }
 
   private LocalTime getCurrentTime() {
@@ -86,5 +65,16 @@ public class LtpSchedulerWorkflowImpl implements LtpSchedulerWorkflow {
     java.time.Instant instant = java.time.Instant.ofEpochMilli(currentMillis);
     java.time.ZoneId zoneId = java.time.ZoneId.systemDefault();
     return instant.atZone(zoneId).toLocalTime();
+  }
+
+  private LocalTime parseTime(String timeStr, LocalTime defaultTime) {
+    try {
+      if (timeStr != null && !timeStr.isEmpty()) {
+        return LocalTime.parse(timeStr);
+      }
+    } catch (Exception e) {
+      System.err.println("⚠️ Failed to parse time: " + timeStr + ", using default: " + defaultTime);
+    }
+    return defaultTime;
   }
 }

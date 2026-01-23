@@ -11,7 +11,6 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 
 public class LtpCalculatorActivitiesImpl implements LtpCalculatorActivities {
   
@@ -42,7 +41,7 @@ public class LtpCalculatorActivitiesImpl implements LtpCalculatorActivities {
   }
   
   @Override
-  public String fetchOptionChain(String serverName, String serverIP, String port, String apiKey, String indexName, String exchange, String expiry, Integer strikeRange) {
+  public String fetchOptionChain(String serverName, String serverIP, String port, String apiKey, String indexName, String exchange, String expiry, Integer strikeRange, Integer apiCallPauseMs) {
     try {
       // Build the host URL
       String hostUrl = "http://" + serverIP + ":" + port;
@@ -65,7 +64,8 @@ public class LtpCalculatorActivitiesImpl implements LtpCalculatorActivities {
       // Enhance response with Greeks data for all CE and PE options
       if (response.has("chain") && response.get("chain").isJsonArray()) {
         System.out.println("🔄 Enhancing response with Greeks data...");
-        enhanceResponseWithGreeks(client, response, exchange);
+        int pauseMs = apiCallPauseMs != null ? apiCallPauseMs : 500;
+        enhanceResponseWithGreeks(client, response, exchange, pauseMs);
         System.out.println("✅ Response enhanced with Greeks data");
       }
       
@@ -99,17 +99,30 @@ public class LtpCalculatorActivitiesImpl implements LtpCalculatorActivities {
   }
   
   private String buildRedisKey(String serverName, String indexName, String expiry) {
-    // Format: openalgo:Angel:IndexName:expiry
-    return String.format("openalgo:%s:%s:%s", serverName, indexName, expiry);
+    // Format: openalgo:Angel:IndexName:expiry:currentoptionchain
+    return String.format("openalgo:%s:%s:%s:current:optionchain", serverName, indexName, expiry);
+  }
+  
+  private String buildSummaryRedisKey(String serverName, String indexName, String expiry) {
+    // Format: openalgo:Angel:IndexName:expiry:current:summary
+    return String.format("openalgo:%s:%s:%s:current:summary", serverName, indexName, expiry);
   }
   
   private void storeInRedis(String key, JsonObject response) {
     try (Jedis jedis = getJedisPool().getResource()) {
+      // Move current data to previous if it exists
+      if (jedis.exists(key)) {
+        String previousKey = key.replace(":current:", ":previous:");
+        String currentData = jedis.get(key);
+        jedis.set(previousKey, currentData);
+        System.out.println("📦 Moved current data to previous - Key: " + previousKey);
+      }
+      
       // Convert JsonObject to JSON string
       Gson gson = new Gson();
       String jsonString = gson.toJson(response);
       
-      // Store in Redis
+      // Store new data in current key
       jedis.set(key, jsonString);
       System.out.println("✅ Stored in Redis - Key: " + key + ", Value length: " + jsonString.length() + " chars");
     } catch (Exception e) {
@@ -155,7 +168,7 @@ public class LtpCalculatorActivitiesImpl implements LtpCalculatorActivities {
     }
   }
   
-  private void enhanceResponseWithGreeks(Object client, JsonObject response, String exchange) {
+  private void enhanceResponseWithGreeks(Object client, JsonObject response, String exchange, int pauseMs) {
     try {
       if (!response.has("chain") || !response.get("chain").isJsonArray()) {
         System.out.println("⚠️ No chain array found in response");
@@ -185,8 +198,8 @@ public class LtpCalculatorActivitiesImpl implements LtpCalculatorActivities {
               addGreeksToOption(ce, greeksResponse);
               successCount++;
               
-              // Add 500ms delay between calls to avoid rate limiting
-              Thread.sleep(500);
+              // Add configurable delay between calls to avoid rate limiting
+              Thread.sleep(pauseMs);
             } catch (InterruptedException e) {
               Thread.currentThread().interrupt();
               System.err.println("⚠️ Thread interrupted while waiting between Greeks calls");
@@ -212,8 +225,8 @@ public class LtpCalculatorActivitiesImpl implements LtpCalculatorActivities {
               addGreeksToOption(pe, greeksResponse);
               successCount++;
               
-              // Add 500ms delay between calls to avoid rate limiting
-              Thread.sleep(500);
+              // Add configurable delay between calls to avoid rate limiting
+              Thread.sleep(pauseMs);
             } catch (InterruptedException e) {
               Thread.currentThread().interrupt();
               System.err.println("⚠️ Thread interrupted while waiting between Greeks calls");
@@ -353,11 +366,60 @@ public class LtpCalculatorActivitiesImpl implements LtpCalculatorActivities {
         createIndexIfNotExists("idx_strike", "openalgo_optionchain", "strike");
         createIndexIfNotExists("idx_ce_symbol", "openalgo_optionchain", "ce_symbol");
         createIndexIfNotExists("idx_pe_symbol", "openalgo_optionchain", "pe_symbol");
+        
+        // Create summary table for aggregated data
+        createSummaryTableIfNotExists();
       }
     } catch (Exception e) {
       System.err.println("⚠️ Failed to create table: " + e.getMessage());
       e.printStackTrace();
       // Don't throw - continue even if table creation fails (might already exist)
+    }
+  }
+  
+  private void createSummaryTableIfNotExists() {
+    try {
+      String createSummaryTableSql = "CREATE TABLE IF NOT EXISTS openalgo_optionchain_summary (" +
+          "id BIGSERIAL PRIMARY KEY, " +
+          "server_name VARCHAR(100) NOT NULL, " +
+          "underlying VARCHAR(50) NOT NULL, " +
+          "underlying_ltp NUMERIC(15, 2), " +
+          "expiry_date VARCHAR(20) NOT NULL, " +
+          "datetime TIMESTAMP NOT NULL, " +
+          // Total sums (all strikes)
+          "total_ce_volume BIGINT DEFAULT 0, " +
+          "total_pe_volume BIGINT DEFAULT 0, " +
+          "total_ce_oi BIGINT DEFAULT 0, " +
+          "total_pe_oi BIGINT DEFAULT 0, " +
+          "total_ce_oi_change BIGINT DEFAULT 0, " +
+          "total_pe_oi_change BIGINT DEFAULT 0, " +
+          // Above underlying sums
+          "above_ce_volume BIGINT DEFAULT 0, " +
+          "above_pe_volume BIGINT DEFAULT 0, " +
+          "above_ce_oi BIGINT DEFAULT 0, " +
+          "above_pe_oi BIGINT DEFAULT 0, " +
+          "above_ce_oi_change BIGINT DEFAULT 0, " +
+          "above_pe_oi_change BIGINT DEFAULT 0, " +
+          // Below underlying sums
+          "below_ce_volume BIGINT DEFAULT 0, " +
+          "below_pe_volume BIGINT DEFAULT 0, " +
+          "below_ce_oi BIGINT DEFAULT 0, " +
+          "below_pe_oi BIGINT DEFAULT 0, " +
+          "below_ce_oi_change BIGINT DEFAULT 0, " +
+          "below_pe_oi_change BIGINT DEFAULT 0" +
+          ")";
+      
+      try (java.sql.Statement stmt = dbConnection.createStatement()) {
+        stmt.execute(createSummaryTableSql);
+        System.out.println("✅ Table 'openalgo_optionchain_summary' created or already exists");
+        
+        // Create indexes for summary table
+        createIndexIfNotExists("idx_summary_server_underlying_expiry", "openalgo_optionchain_summary", "server_name, underlying, expiry_date");
+        createIndexIfNotExists("idx_summary_datetime", "openalgo_optionchain_summary", "datetime");
+      }
+    } catch (Exception e) {
+      System.err.println("⚠️ Failed to create summary table: " + e.getMessage());
+      e.printStackTrace();
     }
   }
   
@@ -377,9 +439,8 @@ public class LtpCalculatorActivitiesImpl implements LtpCalculatorActivities {
     try {
       Connection conn = getDbConnection();
       
-      // Get current datetime with minute precision
+      // Get current datetime with full precision
       LocalDateTime now = LocalDateTime.now();
-      now = now.withSecond(0).withNano(0); // Round to minute
       Timestamp timestamp = Timestamp.valueOf(now);
       
       // Extract chain data
@@ -409,7 +470,24 @@ public class LtpCalculatorActivitiesImpl implements LtpCalculatorActivities {
       
       PreparedStatement pstmt = conn.prepareStatement(insertSql);
       
+      // Initialize aggregation counters
+      long totalCeVolume = 0, totalPeVolume = 0;
+      long totalCeOi = 0, totalPeOi = 0;
+      long totalCeOiChange = 0, totalPeOiChange = 0;
+      
+      long aboveCeVolume = 0, abovePeVolume = 0;
+      long aboveCeOi = 0, abovePeOi = 0;
+      long aboveCeOiChange = 0, abovePeOiChange = 0;
+      
+      long belowCeVolume = 0, belowPeVolume = 0;
+      long belowCeOi = 0, belowPeOi = 0;
+      long belowCeOiChange = 0, belowPeOiChange = 0;
+      
       int insertedRows = 0;
+      
+      // Query previous OI values for change calculation
+      java.util.Map<String, Long> previousCeOi = getPreviousOi(conn, serverName, underlying, expiry, "ce");
+      java.util.Map<String, Long> previousPeOi = getPreviousOi(conn, serverName, underlying, expiry, "pe");
       
       for (int i = 0; i < chain.size(); i++) {
         com.google.gson.JsonObject chainEntry = chain.get(i).getAsJsonObject();
@@ -426,6 +504,58 @@ public class LtpCalculatorActivitiesImpl implements LtpCalculatorActivities {
           pe = chainEntry.getAsJsonObject("pe");
         }
         
+        // Extract values for aggregation
+        long ceVolume = (ce != null && ce.has("volume") && !ce.get("volume").isJsonNull()) 
+            ? ce.get("volume").getAsLong() : 0;
+        long peVolume = (pe != null && pe.has("volume") && !pe.get("volume").isJsonNull()) 
+            ? pe.get("volume").getAsLong() : 0;
+        long ceOi = (ce != null && ce.has("oi") && !ce.get("oi").isJsonNull()) 
+            ? ce.get("oi").getAsLong() : 0;
+        long peOi = (pe != null && pe.has("oi") && !pe.get("oi").isJsonNull()) 
+            ? pe.get("oi").getAsLong() : 0;
+        
+        // Calculate change in OI (current OI - previous OI)
+        String ceSymbol = (ce != null && ce.has("symbol") && !ce.get("symbol").isJsonNull()) 
+            ? ce.get("symbol").getAsString() : null;
+        String peSymbol = (pe != null && pe.has("symbol") && !pe.get("symbol").isJsonNull()) 
+            ? pe.get("symbol").getAsString() : null;
+        
+        long prevCeOi = (ceSymbol != null && previousCeOi.containsKey(ceSymbol)) 
+            ? previousCeOi.get(ceSymbol) : 0;
+        long prevPeOi = (peSymbol != null && previousPeOi.containsKey(peSymbol)) 
+            ? previousPeOi.get(peSymbol) : 0;
+        
+        long ceOiChange = ceOi - prevCeOi;
+        long peOiChange = peOi - prevPeOi;
+        
+        // Add to total sums
+        totalCeVolume += ceVolume;
+        totalPeVolume += peVolume;
+        totalCeOi += ceOi;
+        totalPeOi += peOi;
+        totalCeOiChange += ceOiChange;
+        totalPeOiChange += peOiChange;
+        
+        // Check if strike is above or below underlying
+        boolean isAboveUnderlying = strike > underlyingLtp;
+        boolean isBelowUnderlying = strike < underlyingLtp;
+        
+        if (isAboveUnderlying) {
+          aboveCeVolume += ceVolume;
+          abovePeVolume += peVolume;
+          aboveCeOi += ceOi;
+          abovePeOi += peOi;
+          aboveCeOiChange += ceOiChange;
+          abovePeOiChange += peOiChange;
+        } else if (isBelowUnderlying) {
+          belowCeVolume += ceVolume;
+          belowPeVolume += peVolume;
+          belowCeOi += ceOi;
+          belowPeOi += peOi;
+          belowCeOiChange += ceOiChange;
+          belowPeOiChange += peOiChange;
+        }
+        
         // Insert both CE and PE in single row
         insertStrikeRow(pstmt, serverName, underlying, underlyingLtp, underlyingPrevClose, expiry, 
                        atmStrike, strike, ce, pe, timestamp);
@@ -436,6 +566,12 @@ public class LtpCalculatorActivitiesImpl implements LtpCalculatorActivities {
       pstmt.close();
       
       System.out.println("  ✅ Inserted " + insertedRows + " rows into database");
+      
+      // Store aggregated summary data
+      storeSummaryData(conn, serverName, indexName, underlying, underlyingLtp, expiry, timestamp,
+          totalCeVolume, totalPeVolume, totalCeOi, totalPeOi, totalCeOiChange, totalPeOiChange,
+          aboveCeVolume, abovePeVolume, aboveCeOi, abovePeOi, aboveCeOiChange, abovePeOiChange,
+          belowCeVolume, belowPeVolume, belowCeOi, belowPeOi, belowCeOiChange, belowPeOiChange);
       
     } catch (Exception e) {
       System.err.println("⚠️ Failed to store chain in database: " + e.getMessage());
@@ -540,6 +676,179 @@ public class LtpCalculatorActivitiesImpl implements LtpCalculatorActivities {
     pstmt.setDouble(paramIndex[0]++, gamma);
     pstmt.setDouble(paramIndex[0]++, theta);
     pstmt.setDouble(paramIndex[0]++, vega);
+  }
+  
+  private java.util.Map<String, Long> getPreviousOi(Connection conn, String serverName, String underlying, String expiry, String optionType) {
+    java.util.Map<String, Long> previousOi = new java.util.HashMap<>();
+    try {
+      // Get the most recent OI values for each symbol from the previous record
+      String columnPrefix = optionType.equals("ce") ? "ce" : "pe";
+      String symbolColumn = columnPrefix + "_symbol";
+      String oiColumn = columnPrefix + "_oi";
+      
+      // Use window function to get the latest OI for each symbol
+      String querySql = "SELECT " + symbolColumn + ", " + oiColumn + 
+          " FROM (" +
+          "  SELECT " + symbolColumn + ", " + oiColumn + ", " +
+          "    ROW_NUMBER() OVER (PARTITION BY " + symbolColumn + " ORDER BY datetime DESC) as rn " +
+          "  FROM openalgo_optionchain " +
+          "  WHERE server_name = ? AND underlying = ? AND expiry_date = ? " +
+          "    AND " + symbolColumn + " IS NOT NULL " +
+          ") ranked " +
+          "WHERE rn = 1";
+      
+      try (PreparedStatement pstmt = conn.prepareStatement(querySql)) {
+        pstmt.setString(1, serverName);
+        pstmt.setString(2, underlying);
+        pstmt.setString(3, expiry);
+        
+        try (java.sql.ResultSet rs = pstmt.executeQuery()) {
+          while (rs.next()) {
+            String symbol = rs.getString(symbolColumn);
+            long oi = rs.getLong(oiColumn);
+            if (symbol != null) {
+              previousOi.put(symbol, oi);
+            }
+          }
+        }
+      }
+    } catch (Exception e) {
+      System.err.println("⚠️ Failed to get previous OI values: " + e.getMessage());
+      // Return empty map if query fails - first run will have no previous data
+    }
+    return previousOi;
+  }
+  
+  private void storeSummaryData(Connection conn, String serverName, String indexName, String underlying, double underlyingLtp, 
+                                String expiry, Timestamp timestamp,
+                                long totalCeVolume, long totalPeVolume, long totalCeOi, long totalPeOi, 
+                                long totalCeOiChange, long totalPeOiChange,
+                                long aboveCeVolume, long abovePeVolume, long aboveCeOi, long abovePeOi, 
+                                long aboveCeOiChange, long abovePeOiChange,
+                                long belowCeVolume, long belowPeVolume, long belowCeOi, long belowPeOi, 
+                                long belowCeOiChange, long belowPeOiChange) {
+    try {
+      String insertSummarySql = "INSERT INTO openalgo_optionchain_summary (" +
+          "server_name, underlying, underlying_ltp, expiry_date, datetime, " +
+          "total_ce_volume, total_pe_volume, total_ce_oi, total_pe_oi, " +
+          "total_ce_oi_change, total_pe_oi_change, " +
+          "above_ce_volume, above_pe_volume, above_ce_oi, above_pe_oi, " +
+          "above_ce_oi_change, above_pe_oi_change, " +
+          "below_ce_volume, below_pe_volume, below_ce_oi, below_pe_oi, " +
+          "below_ce_oi_change, below_pe_oi_change" +
+          ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+      
+      try (PreparedStatement pstmt = conn.prepareStatement(insertSummarySql)) {
+        int paramIndex = 1;
+        pstmt.setString(paramIndex++, serverName);
+        pstmt.setString(paramIndex++, underlying);
+        pstmt.setDouble(paramIndex++, underlyingLtp);
+        pstmt.setString(paramIndex++, expiry);
+        pstmt.setTimestamp(paramIndex++, timestamp);
+        
+        // Total sums
+        pstmt.setLong(paramIndex++, totalCeVolume);
+        pstmt.setLong(paramIndex++, totalPeVolume);
+        pstmt.setLong(paramIndex++, totalCeOi);
+        pstmt.setLong(paramIndex++, totalPeOi);
+        pstmt.setLong(paramIndex++, totalCeOiChange);
+        pstmt.setLong(paramIndex++, totalPeOiChange);
+        
+        // Above underlying sums
+        pstmt.setLong(paramIndex++, aboveCeVolume);
+        pstmt.setLong(paramIndex++, abovePeVolume);
+        pstmt.setLong(paramIndex++, aboveCeOi);
+        pstmt.setLong(paramIndex++, abovePeOi);
+        pstmt.setLong(paramIndex++, aboveCeOiChange);
+        pstmt.setLong(paramIndex++, abovePeOiChange);
+        
+        // Below underlying sums
+        pstmt.setLong(paramIndex++, belowCeVolume);
+        pstmt.setLong(paramIndex++, belowPeVolume);
+        pstmt.setLong(paramIndex++, belowCeOi);
+        pstmt.setLong(paramIndex++, belowPeOi);
+        pstmt.setLong(paramIndex++, belowCeOiChange);
+        pstmt.setLong(paramIndex++, belowPeOiChange);
+        
+        pstmt.executeUpdate();
+        System.out.println("  ✅ Stored aggregated summary data in database");
+        System.out.println("     Total - CE Volume: " + totalCeVolume + ", PE Volume: " + totalPeVolume + 
+            ", CE OI: " + totalCeOi + ", PE OI: " + totalPeOi);
+        System.out.println("     Above - CE Volume: " + aboveCeVolume + ", PE Volume: " + abovePeVolume + 
+            ", CE OI: " + aboveCeOi + ", PE OI: " + abovePeOi);
+        System.out.println("     Below - CE Volume: " + belowCeVolume + ", PE Volume: " + belowPeVolume + 
+            ", CE OI: " + belowCeOi + ", PE OI: " + belowPeOi);
+      }
+      
+      // Store summary data in Redis
+      storeSummaryInRedis(serverName, indexName, expiry, underlying, underlyingLtp, timestamp,
+          totalCeVolume, totalPeVolume, totalCeOi, totalPeOi, totalCeOiChange, totalPeOiChange,
+          aboveCeVolume, abovePeVolume, aboveCeOi, abovePeOi, aboveCeOiChange, abovePeOiChange,
+          belowCeVolume, belowPeVolume, belowCeOi, belowPeOi, belowCeOiChange, belowPeOiChange);
+    } catch (Exception e) {
+      System.err.println("⚠️ Failed to store summary data: " + e.getMessage());
+      e.printStackTrace();
+    }
+  }
+  
+  private void storeSummaryInRedis(String serverName, String indexName, String expiry, String underlying, 
+                                   double underlyingLtp, Timestamp timestamp,
+                                   long totalCeVolume, long totalPeVolume, long totalCeOi, long totalPeOi, 
+                                   long totalCeOiChange, long totalPeOiChange,
+                                   long aboveCeVolume, long abovePeVolume, long aboveCeOi, long abovePeOi, 
+                                   long aboveCeOiChange, long abovePeOiChange,
+                                   long belowCeVolume, long belowPeVolume, long belowCeOi, long belowPeOi, 
+                                   long belowCeOiChange, long belowPeOiChange) {
+    try {
+      // Build Redis key for summary
+      String redisKey = buildSummaryRedisKey(serverName, indexName, expiry);
+      
+      // Create JsonObject for summary data
+      JsonObject summaryJson = new JsonObject();
+      summaryJson.addProperty("server_name", serverName);
+      summaryJson.addProperty("underlying", underlying);
+      summaryJson.addProperty("underlying_ltp", underlyingLtp);
+      summaryJson.addProperty("expiry_date", expiry);
+      summaryJson.addProperty("datetime", timestamp.toString());
+      
+      // Total sums
+      JsonObject totalSums = new JsonObject();
+      totalSums.addProperty("ce_volume", totalCeVolume);
+      totalSums.addProperty("pe_volume", totalPeVolume);
+      totalSums.addProperty("ce_oi", totalCeOi);
+      totalSums.addProperty("pe_oi", totalPeOi);
+      totalSums.addProperty("ce_oi_change", totalCeOiChange);
+      totalSums.addProperty("pe_oi_change", totalPeOiChange);
+      summaryJson.add("total", totalSums);
+      
+      // Above underlying sums
+      JsonObject aboveSums = new JsonObject();
+      aboveSums.addProperty("ce_volume", aboveCeVolume);
+      aboveSums.addProperty("pe_volume", abovePeVolume);
+      aboveSums.addProperty("ce_oi", aboveCeOi);
+      aboveSums.addProperty("pe_oi", abovePeOi);
+      aboveSums.addProperty("ce_oi_change", aboveCeOiChange);
+      aboveSums.addProperty("pe_oi_change", abovePeOiChange);
+      summaryJson.add("above_underlying", aboveSums);
+      
+      // Below underlying sums
+      JsonObject belowSums = new JsonObject();
+      belowSums.addProperty("ce_volume", belowCeVolume);
+      belowSums.addProperty("pe_volume", belowPeVolume);
+      belowSums.addProperty("ce_oi", belowCeOi);
+      belowSums.addProperty("pe_oi", belowPeOi);
+      belowSums.addProperty("ce_oi_change", belowCeOiChange);
+      belowSums.addProperty("pe_oi_change", belowPeOiChange);
+      summaryJson.add("below_underlying", belowSums);
+      
+      // Store in Redis using existing method
+      storeInRedis(redisKey, summaryJson);
+      System.out.println("  ✅ Stored summary data in Redis with key: " + redisKey);
+    } catch (Exception e) {
+      System.err.println("⚠️ Failed to store summary in Redis: " + e.getMessage());
+      e.printStackTrace();
+      // Don't throw - continue even if Redis fails
+    }
   }
   
   private String mapExchangeForGreeks(String exchange) {

@@ -105,7 +105,8 @@ A new workflow for calculating LTP (Last Traded Price) using OpenAlgo API.
        "indexName": "NIFTY",
        "exchange": "NSE_INDEX",
        "expiry": "27JAN26",
-       "strikeRange": 10
+       "strikeRange": 10,
+       "apiCallPauseMs": 500
      }
      ```
      Or as an array (matching parameter order - first 5 required, last 3 optional with defaults):
@@ -113,7 +114,9 @@ A new workflow for calculating LTP (Last Traded Price) using OpenAlgo API.
      ["MyServer", "127.0.0.1", "5000", "your_api_key_here", "NIFTY", "NSE_INDEX", "27JAN26", 10]
      ```
      
-     **Note**: `exchange` defaults to "NSE_INDEX", `strikeRange` defaults to 10 if not provided. `expiry` is required.
+     **Note**: 
+     - `exchange` defaults to "NSE_INDEX", `strikeRange` defaults to 10 if not provided. `expiry` is required.
+     - `apiCallPauseMs`: Pause between API calls in milliseconds to avoid throttling (default: 500ms)
 
 4. **Click "Start"** to execute the workflow
 
@@ -186,9 +189,19 @@ A scheduler workflow that automatically runs the LTP Calculator workflow every m
        "indexName": "NIFTY",
        "exchange": "NSE_INDEX",
        "expiry": "27JAN26",
-       "strikeRange": 10
+       "strikeRange": 10,
+       "scheduleStartTime": "09:07",
+       "scheduleEndTime": "15:30",
+       "scheduleIntervalMinutes": 1,
+       "apiCallPauseMs": 500
      }
      ```
+     
+     **Schedule Configuration (Optional):**
+     - `scheduleStartTime`: Start time in 24-hour format (HH:mm), default: "09:07"
+     - `scheduleEndTime`: End time in 24-hour format (HH:mm), default: "15:30"
+     - `scheduleIntervalMinutes`: Interval between executions in minutes, default: 1
+     - `apiCallPauseMs`: Pause between API calls in milliseconds to avoid throttling, default: 500
 
 4. **Click "Start"** to execute the scheduler
 
@@ -216,4 +229,53 @@ A scheduler workflow that automatically runs the LTP Calculator workflow every m
 📊 Scheduler completed. Total executions: 384
 ```
 
-**Note**: The scheduler runs approximately 384 times (from 9:07 AM to 3:30 PM, once per minute).
+**Note**: The scheduler runs approximately 384 times (from 9:07 AM to 3:30 PM, once per minute) by default. You can customize the schedule times and interval in the workflow input.
+
+## Docker Compose Deployment
+
+The project includes a `docker-compose.example.yml` file for easy deployment with Docker Compose.
+
+### Setup
+
+1. **Copy the example files:**
+   ```bash
+   cp env.example .env
+   cp docker-compose.example.yml docker-compose.yml
+   ```
+
+2. **Edit `.env` file** with your configuration:
+   ```bash
+   # Temporal Configuration
+   TEMPORAL_HOST=192.168.1.112:7233
+   
+   # Redis Configuration
+   REDIS_HOST=redis
+   REDIS_PORT=6379
+   REDIS_PASSWORD=
+   
+   # Database Configuration
+   DB_HOST=postgres
+   DB_PORT=5432
+   DB_NAME=pgdb
+   DB_USER=pguser
+   DB_PASSWORD=pgpass
+   
+   # LTP Scheduler Configuration
+   SCHEDULE_START_TIME=09:07
+   SCHEDULE_END_TIME=15:30
+   SCHEDULE_INTERVAL_MINUTES=1
+   ```
+
+3. **Build and start:**
+   ```bash
+   docker-compose up -d
+   ```
+
+### Schedule Configuration
+
+The schedule times can be configured via environment variables in `.env`:
+- `SCHEDULE_START_TIME`: Start time in 24-hour format (HH:mm), default: "09:07"
+- `SCHEDULE_END_TIME`: End time in 24-hour format (HH:mm), default: "15:30"
+- `SCHEDULE_INTERVAL_MINUTES`: Interval between executions in minutes, default: 1
+
+**Note**: When starting the scheduler workflow from Temporal UI, you can override these defaults by including `scheduleStartTime`, `scheduleEndTime`, and `scheduleIntervalMinutes` in the workflow input JSON.

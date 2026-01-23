@@ -63,3 +63,39 @@ CREATE INDEX IF NOT EXISTS idx_datetime ON openalgo_optionchain (datetime);
 CREATE INDEX IF NOT EXISTS idx_strike ON openalgo_optionchain (strike);
 CREATE INDEX IF NOT EXISTS idx_ce_symbol ON openalgo_optionchain (ce_symbol);
 CREATE INDEX IF NOT EXISTS idx_pe_symbol ON openalgo_optionchain (pe_symbol);
+
+-- Summary table for aggregated data (volume, OI, change in OI)
+-- Stores totals, above underlying, and below underlying sums
+CREATE TABLE IF NOT EXISTS openalgo_optionchain_summary (
+    id BIGSERIAL PRIMARY KEY,
+    server_name VARCHAR(100) NOT NULL,
+    underlying VARCHAR(50) NOT NULL,
+    underlying_ltp NUMERIC(15, 2),
+    expiry_date VARCHAR(20) NOT NULL,
+    datetime TIMESTAMP NOT NULL,
+    -- Total sums (all strikes)
+    total_ce_volume BIGINT DEFAULT 0,
+    total_pe_volume BIGINT DEFAULT 0,
+    total_ce_oi BIGINT DEFAULT 0,
+    total_pe_oi BIGINT DEFAULT 0,
+    total_ce_oi_change BIGINT DEFAULT 0,
+    total_pe_oi_change BIGINT DEFAULT 0,
+    -- Above underlying sums
+    above_ce_volume BIGINT DEFAULT 0,
+    above_pe_volume BIGINT DEFAULT 0,
+    above_ce_oi BIGINT DEFAULT 0,
+    above_pe_oi BIGINT DEFAULT 0,
+    above_ce_oi_change BIGINT DEFAULT 0,
+    above_pe_oi_change BIGINT DEFAULT 0,
+    -- Below underlying sums
+    below_ce_volume BIGINT DEFAULT 0,
+    below_pe_volume BIGINT DEFAULT 0,
+    below_ce_oi BIGINT DEFAULT 0,
+    below_pe_oi BIGINT DEFAULT 0,
+    below_ce_oi_change BIGINT DEFAULT 0,
+    below_pe_oi_change BIGINT DEFAULT 0
+);
+
+-- Create indexes for summary table
+CREATE INDEX IF NOT EXISTS idx_summary_server_underlying_expiry ON openalgo_optionchain_summary (server_name, underlying, expiry_date);
+CREATE INDEX IF NOT EXISTS idx_summary_datetime ON openalgo_optionchain_summary (datetime);

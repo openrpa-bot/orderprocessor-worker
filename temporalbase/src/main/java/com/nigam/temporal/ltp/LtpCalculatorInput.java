@@ -19,6 +19,9 @@ public class LtpCalculatorInput {
     private String exchange;
     private String expiry;
     private Integer strikeRange;
+    private String scheduleStartTime;  // Format: "HH:mm" (e.g., "09:07")
+    private String scheduleEndTime;     // Format: "HH:mm" (e.g., "15:30")
+    private Integer apiCallPauseMs;  // Pause between API calls in milliseconds (default: 500)
 
     public LtpCalculatorInput() {
     }
@@ -32,6 +35,9 @@ public class LtpCalculatorInput {
         this.exchange = exchange;
         this.expiry = expiry;
         this.strikeRange = strikeRange;
+        this.scheduleStartTime = "09:07";
+        this.scheduleEndTime = "15:30";
+        this.apiCallPauseMs = 500;
     }
 
     public String getServerName() {
@@ -98,6 +104,30 @@ public class LtpCalculatorInput {
         this.strikeRange = strikeRange;
     }
 
+    public String getScheduleStartTime() {
+        return scheduleStartTime;
+    }
+
+    public void setScheduleStartTime(String scheduleStartTime) {
+        this.scheduleStartTime = scheduleStartTime;
+    }
+
+    public String getScheduleEndTime() {
+        return scheduleEndTime;
+    }
+
+    public void setScheduleEndTime(String scheduleEndTime) {
+        this.scheduleEndTime = scheduleEndTime;
+    }
+
+    public Integer getApiCallPauseMs() {
+        return apiCallPauseMs;
+    }
+
+    public void setApiCallPauseMs(Integer apiCallPauseMs) {
+        this.apiCallPauseMs = apiCallPauseMs;
+    }
+
     public static class Deserializer extends JsonDeserializer<LtpCalculatorInput> {
         @Override
         public LtpCalculatorInput deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
@@ -128,7 +158,7 @@ public class LtpCalculatorInput {
                     Object strikeRangeObj = map.getOrDefault("strikeRange", 10);
                     Integer strikeRange = strikeRangeObj instanceof Number ? ((Number) strikeRangeObj).intValue() : 10;
                     
-                    return new LtpCalculatorInput(
+                    LtpCalculatorInput input = new LtpCalculatorInput(
                         String.valueOf(map.getOrDefault("serverName", "")),
                         String.valueOf(map.getOrDefault("serverIP", "")),
                         String.valueOf(map.getOrDefault("port", "")),
@@ -138,6 +168,18 @@ public class LtpCalculatorInput {
                         String.valueOf(map.getOrDefault("expiry", "")),
                         strikeRange
                     );
+                    // Set schedule times if provided
+                    if (map.containsKey("scheduleStartTime")) {
+                        input.setScheduleStartTime(String.valueOf(map.get("scheduleStartTime")));
+                    }
+                    if (map.containsKey("scheduleEndTime")) {
+                        input.setScheduleEndTime(String.valueOf(map.get("scheduleEndTime")));
+                    }
+                    if (map.containsKey("apiCallPauseMs")) {
+                        Object pauseObj = map.get("apiCallPauseMs");
+                        input.setApiCallPauseMs(pauseObj instanceof Number ? ((Number) pauseObj).intValue() : 500);
+                    }
+                    return input;
                 }
             }
             

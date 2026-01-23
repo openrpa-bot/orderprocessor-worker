@@ -60,6 +60,7 @@ public class LtpCalculatorWorkflowImpl implements LtpCalculatorWorkflow {
     }
     
     // Call the activity to fetch option chain
+    Integer apiCallPauseMs = input.getApiCallPauseMs() != null ? input.getApiCallPauseMs() : 500;
     String result = activities.fetchOptionChain(
         input.getServerName(),
         input.getServerIP(),
@@ -68,7 +69,8 @@ public class LtpCalculatorWorkflowImpl implements LtpCalculatorWorkflow {
         input.getIndexName(),
         input.getExchange(),
         input.getExpiry(),
-        input.getStrikeRange()
+        input.getStrikeRange(),
+        apiCallPauseMs
     );
     
     System.out.println("LTP Calculation Result: " + result);
