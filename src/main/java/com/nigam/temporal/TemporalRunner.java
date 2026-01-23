@@ -2,6 +2,7 @@ package com.nigam.temporal;
 
 import com.nigam.temporal.ltp.LtpCalculatorActivitiesImpl;
 import com.nigam.temporal.ltp.LtpCalculatorWorkflowImpl;
+import com.nigam.temporal.ltp.LtpSchedulerWorkflowImpl;
 import io.temporal.client.WorkflowClient;
 import io.temporal.serviceclient.WorkflowServiceStubs;
 import io.temporal.serviceclient.WorkflowServiceStubsOptions;
@@ -99,7 +100,7 @@ public class TemporalRunner {
                   // Create and configure LTP Calculator Worker
                   System.out.println("⚡ Creating LTP Calculator Worker...");
                   Worker ltpWorker = factory.newWorker("ltpCalculator");
-                  ltpWorker.registerWorkflowImplementationTypes(LtpCalculatorWorkflowImpl.class);
+                  ltpWorker.registerWorkflowImplementationTypes(LtpCalculatorWorkflowImpl.class, LtpSchedulerWorkflowImpl.class);
                   ltpWorker.registerActivitiesImplementations(new LtpCalculatorActivitiesImpl());
                   System.out.println("✅ LTP Calculator Worker created for task queue: ltpCalculator");
 
