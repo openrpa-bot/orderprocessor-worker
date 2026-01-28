@@ -11,6 +11,8 @@ repositories {
 dependencies {
     // ✅ Project dependency — Gradle will build it automatically
     implementation project(':temporalbase')
+    implementation project(':ltp-calculator-worker')
+    implementation project(':download-nse-data-worker')
 
     implementation 'io.temporal:temporal-sdk:1.31.0'
 
@@ -66,4 +68,15 @@ jar {
 // Optional: Ensure multi-module build works automatically
 tasks.withType(JavaCompile) {
     options.encoding = 'UTF-8'
+}
+
+// Run DownloadNseData workflow starter (trigger the job)
+// Usage: ./gradlew runDownloadNseDataStarter
+//        ./gradlew runDownloadNseDataStarter -PtaskType=allIndices
+tasks.register('runDownloadNseDataStarter', JavaExec) {
+    group = 'application'
+    description = 'Start DownloadNseData workflow (ensure worker is running first)'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.nigam.temporal.DownloadNseDataStarter'
+    args = project.hasProperty('taskType') ? [project.taskType] : ['allIndices']
 }

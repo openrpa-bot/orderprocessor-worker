@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  temporal-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: orderprocessor-worker:latest
+    container_name: orderprocessor-worker
+    environment:
+      # Temporal Configuration
+      - TEMPORAL_HOST=${TEMPORAL_HOST}
+      
+      # Redis Configuration
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      
+      # Database Configuration (PostgreSQL/Citus)
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      
+      # LTP Scheduler Configuration
+      - SCHEDULE_START_TIME=${SCHEDULE_START_TIME:-09:07}
+      - SCHEDULE_END_TIME=${SCHEDULE_END_TIME:-15:30}
+      
+      # API Call Configuration
+      - API_CALL_PAUSE_MS=${API_CALL_PAUSE_MS:-500}
+      
+      # Java JVM Options for production
+      - JAVA_OPTS=${JAVA_OPTS:--Xmx2g -Xms1g -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Djava.security.egd=file:/dev/./urandom}
+    env_file:
+      - .env
+    restart: always
+    networks:
+      - temporal-network
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'java.*app.jar' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 3G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    tmpfs:
+      - /tmp
+
+networks:
+  temporal-network:
+    driver: bridge
+    name: temporal-network

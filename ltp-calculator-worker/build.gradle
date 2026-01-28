@@ -1,0 +1,37 @@
+plugins {
+    id 'java-library'
+}
+
+repositories {
+    mavenCentral()
+}
+
+group = 'com.nigam.temporal'
+version = '1.0'
+
+// Only dependencies needed for workflows/activities
+dependencies {
+    implementation 'io.temporal:temporal-sdk:1.31.0'
+
+    // Logging
+    implementation 'in.openalgo:openalgo:1.0.1'
+    implementation 'com.google.code.gson:gson:2.10.1'
+    implementation 'redis.clients:jedis:5.1.0'
+    
+    // Database (PostgreSQL for Citus)
+    implementation 'org.postgresql:postgresql:42.7.3'
+    implementation 'org.apache.logging.log4j:log4j-api:2.25.2'
+    implementation 'org.apache.logging.log4j:log4j-core:2.25.2'
+    implementation 'org.apache.logging.log4j:log4j-slf4j2-impl:2.25.2'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.20.0'
+
+    // Elasticsearch Appender
+    //implementation 'org.appenders.log4j:log4j2-elasticsearch-hc:1.6.1'
+
+    // gRPC
+    implementation 'io.grpc:grpc-netty-shaded:1.76.0'
+
+    // Lombok
+    compileOnly 'org.projectlombok:lombok:1.18.42'
+    annotationProcessor 'org.projectlombok:lombok:1.18.42'
+}

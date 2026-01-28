@@ -3,6 +3,9 @@ package com.nigam.temporal;
 import com.nigam.temporal.ltp.LtpCalculatorActivitiesImpl;
 import com.nigam.temporal.ltp.LtpCalculatorWorkflowImpl;
 import com.nigam.temporal.ltp.LtpSchedulerWorkflowImpl;
+import com.nigam.temporal.nsedata.DownloadNseDataActivitiesImpl;
+import com.nigam.temporal.nsedata.DownloadNseDataBatchWorkflowImpl;
+import com.nigam.temporal.nsedata.DownloadNseDataWorkflowImpl;
 import io.temporal.client.WorkflowClient;
 import io.temporal.serviceclient.WorkflowServiceStubs;
 import io.temporal.serviceclient.WorkflowServiceStubsOptions;
@@ -90,19 +93,10 @@ public class TemporalRunner {
                   System.out.println("⚡ Creating WorkerFactory...");
                   WorkerFactory factory = WorkerFactory.newInstance(client);
                   
-                  // Create and configure Greeting Worker
-                  System.out.println("⚡ Creating Greeting Worker...");
-                  Worker greetingWorker = factory.newWorker("GREETING_TASK_QUEUE");
-                  greetingWorker.registerWorkflowImplementationTypes(GreetingWorkflowImpl.class);
-                  greetingWorker.registerActivitiesImplementations(new GreetingActivitiesImpl());
-                  System.out.println("✅ Greeting Worker created for task queue: GREETING_TASK_QUEUE");
-
-                  // Create and configure LTP Calculator Worker
-                  System.out.println("⚡ Creating LTP Calculator Worker...");
-                  Worker ltpWorker = factory.newWorker("ltpCalculator");
-                  ltpWorker.registerWorkflowImplementationTypes(LtpCalculatorWorkflowImpl.class, LtpSchedulerWorkflowImpl.class);
-                  ltpWorker.registerActivitiesImplementations(new LtpCalculatorActivitiesImpl());
-                  System.out.println("✅ LTP Calculator Worker created for task queue: ltpCalculator");
+                  getGreetingWorker(factory);
+                  getLtpWorker(factory);
+                  
+                  getDownloadNseDataWorker(factory);
 
                   // Start WorkerFactory
                   System.out.println("⚡ Starting WorkerFactory...");
@@ -110,6 +104,7 @@ public class TemporalRunner {
                   System.out.println("✅ Temporal workers started successfully:");
                   System.out.println("   - GREETING_TASK_QUEUE");
                   System.out.println("   - ltpCalculator");
+                  System.out.println("   - downloadNseData");
 
                   // Add shutdown hook
                   Runtime.getRuntime().addShutdownHook(new Thread(() -> {
@@ -122,5 +117,35 @@ public class TemporalRunner {
                   System.err.println("❌ TemporalWorker failed to start");
                   e.printStackTrace();
             }
+      }
+
+      private static void getGreetingWorker(WorkerFactory factory) {
+            // Create and configure Greeting Worker
+            System.out.println("⚡ Creating Greeting Worker...");
+            Worker greetingWorker = factory.newWorker("GREETING_TASK_QUEUE");
+            greetingWorker.registerWorkflowImplementationTypes(GreetingWorkflowImpl.class);
+            greetingWorker.registerActivitiesImplementations(new GreetingActivitiesImpl());
+            System.out.println("✅ Greeting Worker created for task queue: GREETING_TASK_QUEUE");
+      }
+
+      private static void getLtpWorker(WorkerFactory factory) {
+             // Create and configure LTP Calculator Worker
+             System.out.println("⚡ Creating LTP Calculator Worker...");
+             Worker ltpWorker = factory.newWorker("ltpCalculator");
+             ltpWorker.registerWorkflowImplementationTypes(LtpCalculatorWorkflowImpl.class, LtpSchedulerWorkflowImpl.class);
+             ltpWorker.registerActivitiesImplementations(new LtpCalculatorActivitiesImpl());
+             System.out.println("✅ LTP Calculator Worker created for task queue: ltpCalculator");
+      }
+
+      private static void getDownloadNseDataWorker(WorkerFactory factory) {
+             // Create and configure Download NSE Data Worker
+             System.out.println("⚡ Creating Download NSE Data Worker...");
+             Worker downloadNseDataWorker = factory.newWorker("downloadNseData");
+             downloadNseDataWorker.registerWorkflowImplementationTypes(
+                 DownloadNseDataWorkflowImpl.class, 
+                 DownloadNseDataBatchWorkflowImpl.class
+             );
+             downloadNseDataWorker.registerActivitiesImplementations(new DownloadNseDataActivitiesImpl());
+             System.out.println("✅ Download NSE Data Worker created for task queue: downloadNseData");
       }
 }

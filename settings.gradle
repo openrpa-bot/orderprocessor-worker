@@ -1,2 +1,5 @@
 rootProject.name = 'order-management-system'
 include 'temporalbase'
+include 'ltp-calculator-worker'
+include 'download-nse-data-worker'
+

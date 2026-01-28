@@ -279,3 +279,250 @@ The schedule times can be configured via environment variables in `.env`:
 - `SCHEDULE_INTERVAL_MINUTES`: Interval between executions in minutes, default: 1
 
 **Note**: When starting the scheduler workflow from Temporal UI, you can override these defaults by including `scheduleStartTime`, `scheduleEndTime`, and `scheduleIntervalMinutes` in the workflow input JSON.
+
+## NSE Data Download Workflow
+
+A workflow for downloading NSE (National Stock Exchange) data and publishing notifications via Kafka queue with data stored in Redis.
+
+### Workflow Details
+
+- **Single Task Workflow Type**: `DownloadNseDataWorkflow`
+- **Batch Workflow Type**: `DownloadNseDataBatchWorkflow`
+- **Task Queue**: `downloadNseData`
+- **Supported Task Types**: 
+  - `allIndices` - Downloads all NSE indices data (CSV format)
+  - `optionchange` / `optionchain` - Downloads NSE option chain data (JSON format)
+  - `equity` / `equitydata` - Downloads NSE equity data (gainers/losers) (CSV format)
+
+### Starting Single Task Workflow from Temporal UI
+
+1. **Open Temporal UI** and navigate to Workflows section
+2. **Click "Start Workflow"**
+3. **Fill in the workflow details:**
+   - **Workflow Type**: `DownloadNseDataWorkflow`
+   - **Task Queue**: `downloadNseData`
+   - **Workflow ID**: (optional)
+   - **Input**: Provide input as JSON object:
+     ```json
+     {
+       "taskType": "allIndices",
+       "taskdelay": 100,
+       "taskTimeout": 10000,
+       "taskretries": 1
+     }
+     ```
+     
+     **Input Parameters:**
+     - `taskType` (required): Task type - `"allIndices"`, `"optionchange"`, or `"equity"`
+     - `taskdelay` (optional): Delay in milliseconds after each call (default: 0)
+     - `taskTimeout` (optional): Timeout in milliseconds for NSE API call (default: 30000)
+     - `taskretries` (optional): Number of retries on failure (default: 0, 1 = retry once)
+
+4. **Click "Start"** to execute the workflow
+
+### Starting Batch Workflow from Temporal UI
+
+Execute multiple tasks sequentially in a single workflow to avoid server throttling:
+
+1. **Open Temporal UI** and navigate to Workflows section
+2. **Click "Start Workflow"**
+3. **Fill in the workflow details:**
+   - **Workflow Type**: `DownloadNseDataBatchWorkflow`
+   - **Task Queue**: `downloadNseData`
+   - **Workflow ID**: (optional)
+   - **Input**: Provide input as JSON object:
+     ```json
+     {
+       "tasks": [
+         {
+           "taskType": "allIndices",
+           "taskdelay": 100,
+           "taskTimeout": 10000,
+           "taskretries": 1
+         },
+         {
+           "taskType": "optionchange",
+           "taskdelay": 100,
+           "taskTimeout": 10000,
+           "taskretries": 1
+         }
+       ],
+       "interTaskDelay": 100
+     }
+     ```
+     
+     **Batch Input Parameters:**
+     - `tasks` (required): Array of task objects (each with same parameters as single task)
+     - `interTaskDelay` (optional): Delay in milliseconds between tasks (default: 0)
+
+4. **Click "Start"** to execute the batch workflow
+
+### Using the Queue System
+
+The workflow publishes notifications to **Kafka** and stores data in **Redis**. Clients can subscribe to Kafka to be notified when new data is available, then read the actual data from Redis.
+
+#### Kafka Queue - Notification System
+
+**Topic**: `nse.data` (common topic for all NSE downloads to avoid race conditions)
+
+**Message Format**:
+- **Key**: Redis key where data is stored (e.g., `nse:allindices:current`, `nse:optionchain:current`)
+- **Value**: JSON notification with taskName and timestamp:
+  ```json
+  {
+    "taskName": "allIndices",
+    "timestamp": "2026-01-28T12:34:56.789Z"
+  }
+  ```
+
+**Example Kafka Consumer** (Python):
+```python
+from kafka import KafkaConsumer
+import json
+
+consumer = KafkaConsumer(
+    'nse.data',
+    bootstrap_servers=['localhost:29092', 'localhost:29093', 'localhost:29094'],
+    value_deserializer=lambda m: json.loads(m.decode('utf-8'))
+)
+
+for message in consumer:
+    notification = message.value
+    task_name = notification['taskName']
+    timestamp = notification['timestamp']
+    redis_key = message.key.decode('utf-8')
+    
+    print(f"New {task_name} data available at {timestamp}")
+    print(f"Redis key: {redis_key}")
+    # Read data from Redis using redis_key
+```
+
+**Example Kafka Consumer** (Java):
+```java
+Properties props = new Properties();
+props.put("bootstrap.servers", "localhost:29092,localhost:29093,localhost:29094");
+props.put("group.id", "nse-data-consumer");
+props.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
+props.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
+
+KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
+consumer.subscribe(Collections.singletonList("nse.data"));
+
+while (true) {
+    ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(100));
+    for (ConsumerRecord<String, String> record : records) {
+        String redisKey = record.key();
+        String jsonValue = record.value();
+        // Parse JSON to get taskName and timestamp
+        // Read data from Redis using redisKey
+    }
+}
+```
+
+#### Redis Storage - Data Storage
+
+Data is stored in Redis with separate keys for data and timestamp, with current and previous versions:
+
+**Redis Key Structure**:
+- `{taskBase}:current:data` - Latest downloaded data
+- `{taskBase}:current:timestamp` - Latest download timestamp
+- `{taskBase}:previous:data` - Previous data (rotated from current)
+- `{taskBase}:previous:timestamp` - Previous timestamp (rotated from current)
+
+**Task Base Keys**:
+- `nse:allindices` - For allIndices task
+- `nse:optionchain` - For optionchange/optionchain task
+- `nse:equitydata` - For equity/equitydata task
+
+**Example Redis Keys**:
+- `nse:allindices:current:data` - Current allIndices CSV data
+- `nse:allindices:current:timestamp` - Current allIndices download timestamp
+- `nse:allindices:previous:data` - Previous allIndices CSV data
+- `nse:allindices:previous:timestamp` - Previous allIndices download timestamp
+- `nse:equitydata:current:data` - Current equity data CSV data
+- `nse:equitydata:current:timestamp` - Current equity data download timestamp
+- `nse:equitydata:previous:data` - Previous equity data CSV data
+- `nse:equitydata:previous:timestamp` - Previous equity data download timestamp
+
+**Example Redis Client** (Python):
+```python
+import redis
+import json
+
+r = redis.Redis(host='localhost', port=6379, decode_responses=True)
+
+# Read current data
+data = r.get('nse:allindices:current:data')
+timestamp = r.get('nse:allindices:current:timestamp')
+
+print(f"Data downloaded at: {timestamp}")
+print(f"Data: {data[:200]}...")  # First 200 chars
+
+# Read previous data
+previous_data = r.get('nse:allindices:previous:data')
+previous_timestamp = r.get('nse:allindices:previous:timestamp')
+```
+
+**Example Redis Client** (Java):
+```java
+Jedis jedis = new Jedis("localhost", 6379);
+
+// Read current data
+String data = jedis.get("nse:allindices:current:data");
+String timestamp = jedis.get("nse:allindices:current:timestamp");
+
+System.out.println("Data downloaded at: " + timestamp);
+System.out.println("Data: " + data.substring(0, Math.min(200, data.length())));
+
+// Read previous data
+String previousData = jedis.get("nse:allindices:previous:data");
+String previousTimestamp = jedis.get("nse:allindices:previous:timestamp");
+```
+
+### Complete Consumer Flow
+
+1. **Subscribe to Kafka topic** `nse.data`
+2. **When notification received**:
+   - Parse JSON to get `taskName` and `timestamp`
+   - Extract Redis key from Kafka message key
+   - Read data from Redis: `{redisKey}:data`
+   - Read timestamp from Redis: `{redisKey}:timestamp`
+3. **Process the data** as needed
+
+### Configuration
+
+**Kafka Configuration:**
+Set the following environment variable to configure Kafka connection:
+- `KAFKA_BOOTSTRAP_SERVERS`: Kafka bootstrap servers (default: `localhost:29092,localhost:29093,localhost:29094`)
+
+**Redis Configuration:**
+Set the following environment variables to configure Redis connection:
+- `REDIS_HOST`: Redis server host (default: `localhost`)
+- `REDIS_PORT`: Redis server port (default: `6379`)
+- `REDIS_PASSWORD`: Redis password (optional)
+
+**Example Configuration:**
+```bash
+export KAFKA_BOOTSTRAP_SERVERS=localhost:29092,localhost:29093,localhost:29094
+export REDIS_HOST=localhost
+export REDIS_PORT=6379
+export REDIS_PASSWORD=
+```
+
+### Benefits of Common Kafka Topic
+
+- **Avoids Race Conditions**: Single topic ensures ordered message delivery
+- **Simplified Client Setup**: Subscribe to one topic instead of multiple
+- **Task Filtering**: Filter by `taskName` in message payload if needed
+- **Consistent Pattern**: Same structure for all task types
+
+### Data Format
+
+- **allIndices**: Returns CSV format data
+- **optionchange**: Returns JSON format data
+- **equity**: Returns CSV format data
+
+Both are stored as strings in Redis and can be parsed by consumers based on the `taskName` in the Kafka notification.
+
+
+
